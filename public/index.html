@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Agent System with Gemini 2.5 Pro</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .agent-card {
+            border-radius: 10px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .thinker-card {
+            border-left: 5px solid #007bff;
+        }
+        .planner-card {
+            border-left: 5px solid #28a745;
+        }
+        .executor-card {
+            border-left: 5px solid #fd7e14;
+        }
+        .reviewer-card {
+            border-left: 5px solid #6f42c1;
+        }
+        .agent-header {
+            font-weight: bold;
+            padding: 10px 15px;
+            border-bottom: 1px solid rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .agent-content {
+            padding: 15px;
+            white-space: pre-wrap;
+        }
+        .status-badge {
+            font-size: 0.8rem;
+            padding: 5px 10px;
+        }
+        #taskForm {
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        #prompt {
+            min-height: 100px;
+        }
+        .tool-badge {
+            margin-right: 5px;
+            margin-bottom: 5px;
+            cursor: pointer;
+        }
+        #selectedTools {
+            margin-top: 10px;
+        }
+        .loading-spinner {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            margin-right: 5px;
+        }
+        .task-history {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4">Multi-Agent System with Gemini 2.5 Pro</h1>
+        
+        <div class="row">
+            <div class="col-lg-12">
+                <form id="taskForm">
+                    <div class="mb-3">
+                        <label for="prompt" class="form-label">Task Prompt</label>
+                        <textarea class="form-control" id="prompt" rows="3" placeholder="Enter your task here..."></textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Available Tools</label>
+                        <div>
+                            <span class="badge bg-secondary tool-badge" data-tool="web_search">Web Search</span>
+                            <span class="badge bg-secondary tool-badge" data-tool="read_file">Read File</span>
+                            <span class="badge bg-secondary tool-badge" data-tool="write_file">Write File</span>
+                            <span class="badge bg-secondary tool-badge" data-tool="run_command">Run Command</span>
+                        </div>
+                        <div id="selectedTools">
+                            <small class="text-muted">No tools selected</small>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary" id="submitBtn">Start Task</button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="row mt-4">
+            <div class="col-lg-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Task Progress</h5>
+                    </div>
+                    <div class="card-body task-history" id="taskHistory">
+                        <div class="text-center text-muted">
+                            <p>No tasks started yet. Enter a prompt above to begin.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task Template -->
+    <template id="taskTemplate">
+        <div class="task-container mb-4">
+            <h5 class="task-prompt mb-2"></h5>
+            <div class="task-status mb-3">
+                <span class="badge bg-info status-badge">
+                    <span class="spinner-border spinner-border-sm loading-spinner"></span>
+                    <span class="status-text">Initializing...</span>
+                </span>
+            </div>
+            <div class="agent-responses">
+                <!-- Agent cards will be inserted here -->
+            </div>
+        </div>
+    </template>
+    
+    <!-- Agent Card Template -->
+    <template id="agentCardTemplate">
+        <div class="card agent-card">
+            <div class="agent-header">
+                <span class="agent-name"></span>
+                <span class="badge status-badge"></span>
+            </div>
+            <div class="agent-content">
+                <div class="placeholder">Waiting for response...</div>
+            </div>
+        </div>
+    </template>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const taskForm = document.getElementById('taskForm');
+            const promptInput = document.getElementById('prompt');
+            const submitBtn = document.getElementById('submitBtn');
+            const taskHistory = document.getElementById('taskHistory');
+            const selectedToolsDiv = document.getElementById('selectedTools');
+            
+            let selectedTools = [];
+            let eventSource = null;
+            let currentTaskId = null;
+            
+            // Handle tool selection
+            document.querySelectorAll('.tool-badge').forEach(badge => {
+                badge.addEventListener('click', function() {
+                    const tool = this.dataset.tool;
+                    if (selectedTools.includes(tool)) {
+                        // Remove tool
+                        selectedTools = selectedTools.filter(t => t !== tool);
+                        this.classList.remove('bg-primary');
+                        this.classList.add('bg-secondary');
+                    } else {
+                        // Add tool
+                        selectedTools.push(tool);
+                        this.classList.remove('bg-secondary');
+                        this.classList.add('bg-primary');
+                    }
+                    
+                    // Update selected tools display
+                    if (selectedTools.length === 0) {
+                        selectedToolsDiv.innerHTML = '<small class="text-muted">No tools selected</small>';
+                    } else {
+                        selectedToolsDiv.innerHTML = selectedTools.map(tool => 
+                            `<span class="badge bg-primary me-1">${tool}</span>`
+                        ).join('');
+                    }
+                });
+            });
+            
+            // Connect to SSE endpoint
+            function connectToEventStream() {
+                if (eventSource) {
+                    eventSource.close();
+                }
+                
+                eventSource = new EventSource('/api/agent-stream');
+                
+                eventSource.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    handleServerEvent(data);
+                };
+                
+                eventSource.onerror = function(error) {
+                    console.error('EventSource error:', error);
+                    setTimeout(() => {
+                        connectToEventStream();
+                    }, 3000);
+                };
+            }
+            
+            // Handle server events
+            function handleServerEvent(data) {
+                console.log('Server event:', data);
+                
+                if (data.type === 'task_started') {
+                    createNewTaskUI(data.taskId, promptInput.value);
+                    currentTaskId = data.taskId;
+                }
+                else if (data.type === 'task_update') {
+                    updateTaskUI(data);
+                }
+            }
+            
+            // Create UI for a new task
+            function createNewTaskUI(taskId, prompt) {
+                // Clear "no tasks" message if present
+                if (taskHistory.querySelector('.text-center.text-muted')) {
+                    taskHistory.innerHTML = '';
+                }
+                
+                // Clone task template
+                const taskTemplate = document.getElementById('taskTemplate');
+                const taskElement = document.importNode(taskTemplate.content, true);
+                
+                // Set task details
+                taskElement.querySelector('.task-prompt').textContent = prompt;
+                
+                // Create agent cards
+                const agentResponses = taskElement.querySelector('.agent-responses');
+                
+                // Add agent cards
+                const agents = ['thinker', 'planner', 'executor', 'reviewer'];
+                agents.forEach(agent => {
+                    const agentCard = createAgentCard(agent);
+                    agentResponses.appendChild(agentCard);
+                });
+                
+                // Add task element to history
+                taskHistory.prepend(taskElement);
+                
+                // Store task ID as data attribute on the container
+                taskHistory.firstElementChild.dataset.taskId = taskId;
+            }
+            
+            // Create an agent card
+            function createAgentCard(agent) {
+                const template = document.getElementById('agentCardTemplate');
+                const card = document.importNode(template.content, true);
+                
+                // Set agent details
+                card.querySelector('.agent-card').classList.add(`${agent}-card`);
+                card.querySelector('.agent-name').textContent = agent.charAt(0).toUpperCase() + agent.slice(1);
+                
+                const badge = card.querySelector('.status-badge');
+                badge.classList.add('bg-secondary');
+                badge.textContent = 'Waiting';
+                
+                return card;
+            }
+            
+            // Update task UI based on server event
+            function updateTaskUI(data) {
+                const taskContainer = document.querySelector(`.task-container[data-task-id="${data.taskId}"]`);
+                if (!taskContainer) return;
+                
+                // Update task status
+                const statusBadge = taskContainer.querySelector('.task-status .status-badge');
+                const statusText = statusBadge.querySelector('.status-text');
+                const spinner = statusBadge.querySelector('.loading-spinner');
+                
+                statusText.textContent = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+                
+                // Update status badge color
+                statusBadge.className = 'badge status-badge';
+                switch (data.status) {
+                    case 'thinking':
+                        statusBadge.classList.add('bg-info');
+                        break;
+                    case 'planning':
+                        statusBadge.classList.add('bg-primary');
+                        break;
+                    case 'executing':
+                        statusBadge.classList.add('bg-warning');
+                        break;
+                    case 'reviewing':
+                        statusBadge.classList.add('bg-secondary');
+                        break;
+                    case 'completed':
+                        statusBadge.classList.add('bg-success');
+                        spinner.style.display = 'none';
+                        break;
+                    case 'failed':
+                        statusBadge.classList.add('bg-danger');
+                        spinner.style.display = 'none';
+                        break;
+                }
+                
+                // Update agent cards if result is available
+                if (data.result) {
+                    // Task completed or failed
+                    if (data.status === 'completed' && data.result.thinking) {
+                        updateAgentCard(taskContainer, 'thinker', data.result.thinking);
+                    }
+                    if (data.status === 'completed' && data.result.planning) {
+                        updateAgentCard(taskContainer, 'planner', data.result.planning);
+                    }
+                    if (data.status === 'completed' && data.result.execution) {
+                        updateAgentCard(taskContainer, 'executor', data.result.execution);
+                    }
+                    if (data.status === 'completed' && data.result.review) {
+                        updateAgentCard(taskContainer, 'reviewer', data.result.review);
+                    }
+                    
+                    // If failed, show error
+                    if (data.status === 'failed' && data.result.error) {
+                        const errorDiv = document.createElement('div');
+                        errorDiv.className = 'alert alert-danger mt-3';
+                        errorDiv.textContent = `Error: ${data.result.error}`;
+                        taskContainer.appendChild(errorDiv);
+                    }
+                }
+                
+                // Update the active agent based on current status
+                const agentMap = {
+                    'thinking': 'thinker',
+                    'planning': 'planner',
+                    'executing': 'executor',
+                    'reviewing': 'reviewer'
+                };
+                
+                if (agentMap[data.status]) {
+                    const currentAgent = agentMap[data.status];
+                    const agentBadge = taskContainer.querySelector(`.${currentAgent}-card .status-badge`);
+                    
+                    // Reset all agent badges
+                    taskContainer.querySelectorAll('.agent-card .status-badge').forEach(badge => {
+                        badge.className = 'badge status-badge bg-secondary';
+                        badge.textContent = 'Waiting';
+                    });
+                    
+                    // Set current agent badge
+                    agentBadge.className = 'badge status-badge bg-info';
+                    agentBadge.textContent = 'Working...';
+                }
+            }
+            
+            // Update an agent card with content
+            function updateAgentCard(taskContainer, agent, content) {
+                const agentCard = taskContainer.querySelector(`.${agent}-card`);
+                if (!agentCard) return;
+                
+                const agentContent = agentCard.querySelector('.agent-content');
+                agentContent.innerHTML = `<div>${formatContent(content)}</div>`;
+                
+                const agentBadge = agentCard.querySelector('.status-badge');
+                agentBadge.className = 'badge status-badge bg-success';
+                agentBadge.textContent = 'Completed';
+            }
+            
+            // Format content with markdown-like syntax
+            function formatContent(content) {
+                // Replace newlines with <br>
+                content = content.replace(/\n/g, '<br>');
+                
+                // Bold text between ** **
+                content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                
+                // Italic text between * *
+                content = content.replace(/\*(.*?)\*/g, '<em>$1</em>');
+                
+                // Code blocks
+                content = content.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+                
+                // Inline code
+                content = content.replace(/`(.*?)`/g, '<code>$1</code>');
+                
+                return content;
+            }
+            
+            // Submit task form
+            taskForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const prompt = promptInput.value.trim();
+                if (!prompt) {
+                    alert('Please enter a task prompt');
+                    return;
+                }
+                
+                // Disable submit button
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+                
+                try {
+                    // Prepare tools data
+                    const toolsData = selectedTools.map(toolName => {
+                        // In a real app, you would have more detailed tool definitions
+                        return {
+                            name: toolName,
+                            description: `${toolName} tool`
+                        };
+                    });
+                    
+                    // Send task to server
+                    const response = await fetch('/api/start-task', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            prompt,
+                            tools: toolsData
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (!response.ok) {
+                        throw new Error(data.error || 'Failed to start task');
+                    }
+                    
+                    // Clear form
+                    promptInput.value = '';
+                    selectedTools = [];
+                    document.querySelectorAll('.tool-badge').forEach(badge => {
+                        badge.classList.remove('bg-primary');
+                        badge.classList.add('bg-secondary');
+                    });
+                    selectedToolsDiv.innerHTML = '<small class="text-muted">No tools selected</small>';
+                    
+                } catch (error) {
+                    console.error('Error starting task:', error);
+                    alert('Error starting task: ' + error.message);
+                } finally {
+                    // Re-enable submit button
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Start Task';
+                }
+            });
+            
+            // Connect to event stream when page loads
+            connectToEventStream();
+        });
+    </script>
+</body>
+</html>

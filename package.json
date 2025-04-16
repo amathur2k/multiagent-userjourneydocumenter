@@ -1,0 +1,30 @@
+{
+  "name": "multi-agent-system",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node start.js",
+    "start:main": "node server.js",
+    "start:mcp": "node src/mcpServer.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "multi-agent",
+    "gemini",
+    "llm",
+    "sse",
+    "mcp"
+  ],
+  "author": "",
+  "license": "ISC",
+  "description": "A multi-agent system with thinking, planning, reviewing, and repeating capabilities using Gemini 2.5 Pro",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.0",
+    "@playwright/mcp": "^0.0.13",
+    "body-parser": "^2.2.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "playwright": "^1.52.0-beta-1744732215000"
+  }
+}

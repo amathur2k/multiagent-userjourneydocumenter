@@ -20,6 +20,11 @@ out/
 logs
 *.log
 
+# Generated files
+page-content.html
+*.png
+screenshots/
+
 # Runtime data
 pids
 *.pid

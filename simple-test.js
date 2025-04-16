@@ -37,9 +37,16 @@ async function runTest() {
     log('Adding extra delay for page rendering');
     await page.waitForTimeout(3000);
     
-    // Take a screenshot
-    log('Taking screenshot of the pendants page');
-    await page.screenshot({ path: 'pendants-page.png' });
+    // Take a debug screenshot
+    log('Taking debug screenshot');
+    // Highlight the first product by adding a red border
+    await page.evaluate((selector) => {
+      const element = document.querySelector(selector);
+      if (element) {
+        element.style.border = '3px solid red';
+      }
+    }, productLinks[0]);
+    await page.screenshot({ path: 'debug-product-link.png' });
     
     // Get the HTML content for debugging
     const htmlContent = await page.content();
